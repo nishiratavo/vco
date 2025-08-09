@@ -5,12 +5,14 @@
 #define ADC_BUFFERSIZE 2
 
 ADC_HandleTypeDef adcHandle;
+TIM_HandleTypeDef timHandle;
 
 uint16_t adcValue[ADC_BUFFERSIZE];
 
 void RCC_SystemClock_Config(void);
 void GPIO_Output_Config(void);
 void ADC_Config(void);
+void TIM_Config(void);
 void Error_Handler(void);
 
 
@@ -143,6 +145,57 @@ void ADC_Config(void)
 	}
 }
 
+
+/**
+  * @brief  TIM configuration:
+  *             TIM                = TIM4
+  *             Prescaler          = 18
+  *             Counter mode       = Up
+  *             Period             = 1024
+  *             Clock division     = 0
+  *             Repetition counter = 0
+  * @param  None
+  * @retval None
+  */
+void TIM_Config(void)
+{
+	TIM_OC_InitTypeDef timOcInitStruct;
+
+	/*## STEP 1: Configure TIM ###############################################*/
+	/* Configure TIM base */
+	timHandle.Instance               = TIM4;
+	/* TIM4CLK = CK_INT = 72 MHz
+	 * Prescaler = 18
+	 * CK_PSC = CK_CNT = clock counter = 72 MHz/18 = 4 MHz (0.25us) */
+	timHandle.Init.Prescaler         = 18 - 1;
+	timHandle.Init.CounterMode       = TIM_COUNTERMODE_UP;
+	/* ARR = counter overflow = period = 1024 count
+	 * PWM signal period = 0.25us * 1024 = 256us (3906.25 Hz) */
+	timHandle.Init.Period            = 1024 - 1;
+	timHandle.Init.ClockDivision     = 0;
+	timHandle.Init.RepetitionCounter = 0;
+	timHandle.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+	if (HAL_TIM_Base_Init(&timHandle) != HAL_OK)
+	{
+		Error_Handler();
+	}
+	/* Configure TIM PWM */
+	timOcInitStruct.OCMode     = TIM_OCMODE_PWM1;
+	timOcInitStruct.OCPolarity = TIM_OCPOLARITY_HIGH;
+	timOcInitStruct.OCFastMode = TIM_OCFAST_ENABLE;
+	if (HAL_TIM_OC_ConfigChannel(&timHandle, &timOcInitStruct, TIM_CHANNEL_3)
+			!= HAL_OK)
+	{
+		Error_Handler();
+	}
+
+	/*## STEP 2: Start TIM ###################################################*/
+	if (HAL_TIM_PWM_Start(&timHandle, TIM_CHANNEL_3) != HAL_OK)
+	{
+		Error_Handler();
+	}
+}
+
 /**
  * @brief  ADC MSP configuration callback.
  * @param  None
@@ -189,6 +242,28 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* hadc)
 	HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
 }
 
+
+/**
+  * @brief  TIM MSP configuration callback.
+  * @param  None
+  * @retval None
+  */
+void HAL_TIM_Base_MspInit(TIM_HandleTypeDef *htim)
+{
+	GPIO_InitTypeDef gpioInit;
+
+	/*## STEP 1: Configure RCC peripheral ####################################*/
+	__HAL_RCC_TIM4_CLK_ENABLE();
+	__HAL_RCC_GPIOB_CLK_ENABLE();
+
+	/*## STEP 2: Configure GPIO ##############################################*/
+	/* Configure PB8 for TIM4 CH3 output */
+	gpioInit.Pin   = GPIO_PIN_8;
+	gpioInit.Mode  = GPIO_MODE_AF_PP;
+	gpioInit.Speed = GPIO_SPEED_FREQ_HIGH;
+	HAL_GPIO_Init(GPIOB, &gpioInit);
+}
+
 /**
   * @brief  Conversion complete callback in non blocking mode.
   * @param  hadc: ADC handle
@@ -210,12 +285,33 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 	if (adcValue[1] > 2047)
 	{
 		/* Turn green LED on */
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
 	}
 	else
 	{
 		/* Turn green LED off */
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_8, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET);
+	}
+	
+	if (adcValue[0] > 0 && adcValue[0] <= 1023)
+	{
+		__HAL_TIM_SET_AUTORELOAD(&timHandle, 1024);
+		__HAL_TIM_SET_COMPARE(&timHandle, TIM_CHANNEL_3, 1024/2);
+	}
+	else if (adcValue[0] > 1023 && adcValue[0] <= 2047)
+	{
+		__HAL_TIM_SET_AUTORELOAD(&timHandle, 2048);
+		__HAL_TIM_SET_COMPARE(&timHandle, TIM_CHANNEL_3, 2048/2);
+	}
+	else if (adcValue[0] > 2047 && adcValue[0] <= 3071)
+	{
+		__HAL_TIM_SET_AUTORELOAD(&timHandle, 3072);
+		__HAL_TIM_SET_COMPARE(&timHandle, TIM_CHANNEL_3, 3072/2);
+	}
+	else
+	{
+		__HAL_TIM_SET_AUTORELOAD(&timHandle, 4096);
+		__HAL_TIM_SET_COMPARE(&timHandle, TIM_CHANNEL_3, 4096/2);
 	}
 }
 
@@ -243,6 +339,9 @@ int main (void) {
 
 	/*## GPIO initialization #################################################*/
 	GPIO_Output_Config();
+
+	/*## TIM initialization #################################################*/
+	TIM_Config();
 
 	/*## ADC initialization ##################################################*/
 	ADC_Config();
