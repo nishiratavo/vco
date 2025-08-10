@@ -6,6 +6,7 @@
 
 ADC_HandleTypeDef adcHandle;
 TIM_HandleTypeDef timHandle;
+TIM_HandleTypeDef timAdcHandle;
 
 uint16_t adcValue[ADC_BUFFERSIZE];
 
@@ -113,10 +114,10 @@ void ADC_Config(void)
 	adcHandle.Instance                   = ADC1;
 	adcHandle.Init.DataAlign             = ADC_DATAALIGN_RIGHT;
 	adcHandle.Init.ScanConvMode          = ADC_SCAN_ENABLE;
-	adcHandle.Init.ContinuousConvMode    = ENABLE;
+	adcHandle.Init.ContinuousConvMode    = DISABLE;
 	adcHandle.Init.NbrOfConversion       = 2;
-	adcHandle.Init.DiscontinuousConvMode = DISABLE;
-	adcHandle.Init.ExternalTrigConv      = ADC_SOFTWARE_START;
+	// adcHandle.Init.DiscontinuousConvMode = DISABLE;
+	adcHandle.Init.ExternalTrigConv      = ADC_EXTERNALTRIGCONV_T3_TRGO;
 	if (HAL_ADC_Init(&adcHandle) != HAL_OK)
 	{
 		Error_Handler();
@@ -194,6 +195,42 @@ void TIM_Config(void)
 	{
 		Error_Handler();
 	}
+
+
+	TIM_MasterConfigTypeDef timMasterConfig;
+
+	/*## STEP 1: Configure TIM ###############################################*/
+	/* Configure TIM base */
+	timAdcHandle.Instance               = TIM3;
+	/* TIM1CLK = CK_INT = 72 MHz
+	 * Prescaler = 18
+	 * CK_PSC = CK_CNT = clock counter = 72 MHz/18 = 4 MHz (0.25us) */
+	timAdcHandle.Init.Prescaler         = 18 - 1;
+	timAdcHandle.Init.CounterMode       = TIM_COUNTERMODE_UP;
+	/* ARR = counter overflow = period = 1000 count
+	 * TIM interrupt period = 0.25us * 1000 = 0.25ms */
+	timAdcHandle.Init.Period            = 1000 - 1;
+	timAdcHandle.Init.ClockDivision     = 0;
+	timAdcHandle.Init.RepetitionCounter = 0;
+	if (HAL_TIM_Base_Init(&timAdcHandle) != HAL_OK)
+	{
+		Error_Handler();
+	}
+	/* Configure TIM master TRGO */
+	timMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+	timMasterConfig.MasterSlaveMode     = TIM_MASTERSLAVEMODE_DISABLE;
+	if (HAL_TIMEx_MasterConfigSynchronization(&timAdcHandle, &timMasterConfig)
+			!= HAL_OK)
+	{
+		Error_Handler();
+	}
+
+	/*## STEP 2: Start TIM ###################################################*/
+	if (HAL_TIM_Base_Start(&timAdcHandle) != HAL_OK)
+	{
+		Error_Handler();
+	}
+
 }
 
 /**
@@ -254,6 +291,7 @@ void HAL_TIM_Base_MspInit(TIM_HandleTypeDef *htim)
 
 	/*## STEP 1: Configure RCC peripheral ####################################*/
 	__HAL_RCC_TIM4_CLK_ENABLE();
+	__HAL_RCC_TIM3_CLK_ENABLE();
 	__HAL_RCC_GPIOB_CLK_ENABLE();
 
 	/*## STEP 2: Configure GPIO ##############################################*/
@@ -282,16 +320,23 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_RESET);
 	}
 
-	if (adcValue[1] > 2047)
+	/*
+	// Test to check ADC Timer trigger frequency, the GPIOB_9 should have a frequency of
+	// (ADC Timer)/2 -> 4kHz/2 = 2kHz
+	GPIO_PinState gpio_9_state = HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_9);
+
+	if (gpio_9_state == GPIO_PIN_SET)
 	{
-		/* Turn green LED on */
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
+		// Turn green LED on 
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET);
 	}
 	else
 	{
-		/* Turn green LED off */
-		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_RESET);
+		// Turn green LED off
+		HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);
 	}
+
+	*/
 	
 	if (adcValue[0] > 0 && adcValue[0] <= 1023)
 	{
