@@ -1,4 +1,5 @@
 #include <stdint.h>
+#include <math.h>
 #include "stm32f1xx.h"
 #include "stm32f1xx_hal.h"
 
@@ -9,6 +10,10 @@ TIM_HandleTypeDef timHandle;
 TIM_HandleTypeDef timAdcHandle;
 
 uint16_t adcValue[ADC_BUFFERSIZE];
+uint16_t clean_adc;
+float pwm_freq;
+const float TO_VOLTS = 2.4242*0.00322; // 2.4242=(8V/3.3V) 0.00322=(3.3V/1024(10bits))
+uint16_t pwm_counter;
 
 void RCC_SystemClock_Config(void);
 void GPIO_Output_Config(void);
@@ -166,12 +171,12 @@ void TIM_Config(void)
 	/* Configure TIM base */
 	timHandle.Instance               = TIM4;
 	/* TIM4CLK = CK_INT = 72 MHz
-	 * Prescaler = 18
-	 * CK_PSC = CK_CNT = clock counter = 72 MHz/18 = 4 MHz (0.25us) */
-	timHandle.Init.Prescaler         = 18 - 1;
+	 * Prescaler = 72
+	 * CK_PSC = CK_CNT = clock counter = 72 MHz/72 = 1 MHz (1us) */
+	timHandle.Init.Prescaler         = 72 - 1;
 	timHandle.Init.CounterMode       = TIM_COUNTERMODE_UP;
 	/* ARR = counter overflow = period = 1024 count
-	 * PWM signal period = 0.25us * 1024 = 256us (3906.25 Hz) */
+	 * PWM signal period = 1us * 1024 = 1024us (97.65 Hz) */
 	timHandle.Init.Period            = 1024 - 1;
 	timHandle.Init.ClockDivision     = 0;
 	timHandle.Init.RepetitionCounter = 0;
@@ -337,7 +342,15 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 	}
 
 	*/
+	clean_adc = adcValue[0] >> 2;
+	pwm_freq = 27.5*pow(2.0, TO_VOLTS*double(clean_adc));
+	pwm_counter = int(1000000/pwm_freq);
+
+
+	__HAL_TIM_SET_AUTORELOAD(&timHandle, pwm_counter);
+	__HAL_TIM_SET_COMPARE(&timHandle, TIM_CHANNEL_3, int(pwm_counter/2));
 	
+	/*
 	if (adcValue[0] > 0 && adcValue[0] <= 1023)
 	{
 		__HAL_TIM_SET_AUTORELOAD(&timHandle, 1024);
@@ -358,6 +371,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 		__HAL_TIM_SET_AUTORELOAD(&timHandle, 4096);
 		__HAL_TIM_SET_COMPARE(&timHandle, TIM_CHANNEL_3, 4096/2);
 	}
+	*/
 }
 
 
